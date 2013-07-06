@@ -4,7 +4,7 @@
 import getpass
 import re
 import os
-import optparse
+import argparse
 import tempfile
 import xmlrpclib
 import socket
@@ -154,16 +154,17 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
     special_fields = {'status': get_issue_status, 'priority': get_issue_priority, 'type': get_issue_type}
 
     if formatter:
-        groups = re.compile("(%([\w]+))").findall(formatter)
+        groups = re.compile('(\$([\w]+))').findall(formatter)
         ret_str = formatter
         for key, value in groups:
+
             if value.lower() in special_fields.keys():
+                id = issue[value.lower()]
                 meth = special_fields[value.lower()]
-                key = issue[value.lower()]
                 mappings = meth(None)
                 data = ''
                 for item in mappings:
-                    if item['id'] == key:
+                    if item['id'] == id:
                         data = item['name']
                 ret_str = ret_str.replace(key, data)
             else:
@@ -228,7 +229,7 @@ def get_filter_id_from_name(name):
     if filters:
         return filters[0]['id']
     else:
-        raise RuntimeError('invalid filter name %s' % name)
+        raise RuntimeError('invalid filter name "%s"' % name)
 
 
 def get_issues_from_filter(filter_name):
@@ -247,7 +248,7 @@ def add_comment(jira_id, comment):
         comment = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'comment')
     res = JIRAOBJ.jira1.addComment(TOKEN, jira_id, comment)
     if res:
-        return '%s added to %s' % (comment, jira_id)
+        return 'comment "%s" added to %s' % (comment, jira_id)
     else:
         return 'failed to add comment to %s' % jira_id
 
@@ -266,113 +267,137 @@ def create_issue(project, issue_type=0, summary='', description='', priority='Ma
     return JIRAOBJ.jira1.createIssue(TOKEN, issue)
 
 
-def main():
-    example_usage = \
-        '''
-------------------------------------------------------------------------------------------
-view jira: jira-cli BE-193
-view multiple jiras: jira-cli XYZ-123 ZZZ-123 ABC-123
-add a comment: jira-cli BE-193 -c "i am sam"
-create a new issue: jira-cli -n bug -p BE -t "i am sam" "and this is my long description
-ending
-here"
-------------------------------------------------------------------------------------------
-'''
-    parser = optparse.OptionParser()
-    parser.usage = example_usage
-    parser.add_option('', '--list-types', dest='listtypes', help="print out the different jira 'types'",
-                      action='store_true')
-    parser.add_option('', '--list-prios', dest='listprios', help="print out the different jira 'priorities'",
-                      action='store_true')
-    parser.add_option('', '--list-filters', dest='listfilters', help='print out the different jira filters available',
-                      action='store_true')
-    parser.add_option('-s', '--search', dest='search', help='search criteria')
-    parser.add_option('', '--filter', dest='filter',
-                      help='filter(s) to use for listing jiras. use a comma to separate multiple filters')
-    # options which require jira-id to act on:
-    parser.add_option('-c', '--comment', dest='comment', help='comment on jira(s)')
-    parser.add_option('-n', '--new', dest='issue_type', help='create a new issue with given title')
-    parser.add_option('-p', '--priority', dest='issue_priority', help='priority of new issue', default='minor')
-    parser.add_option('-t', '--title', dest='issue_title', help='new issue title')
-    parser.add_option('-P', '--project', dest='jira_project', help='the jira project to act on')
-    # options wich formatting output:
-    parser.add_option('', '--oneline', dest='oneline', help='print only one line of info', action='store_true')
-    parser.add_option('', '--comments-only', dest='commentsonly', help='show only the comments for a jira',
-                      action='store_true')
-    parser.add_option('-v', dest='verbose', action='store_true', help='print extra information')
-    parser.add_option('-f', '--format', dest='format', default=None,
-                      help="""format for outputting information. allowed tokens:
-%status,
-%priority,
-%updated,
-%votes,
-%components,
-%project,
-%reporter,
-%created,
-%fixVersions,
-%summary,
-%environment,
-%assignee,
-%key,
-%affectsVersions,
-%type.
-examples: "%priority,%reporter","(%key) %priority, reported by %reporter" """)
-    parser.add_option('', '--user', dest='username', help='username to login as', default=None)
-    parser.add_option('', '--password', dest='password', help='passowrd', default=None)
+def list(args):
 
-    opts, args = parser.parse_args()
-    check_auth(opts.username, opts.password)
+    if not any([args.filters, args.prios, args.types, args.search, args.filter]):
+        if not args.issue:
+            raise Exception('issue id must be provided')
+        issue = get_jira(args.issue)
+        mode = (0 if not args.verbose else 1)
+        mode = (-1 if args.oneline else mode)
+        print format_issue(issue, mode, args.format, args.commentsonly)
+
+    if args.filters:
+        for idx, filt in enumerate(get_filters(), start=1):
+            print '%d. %s (Owner: %s)' % (idx, colorfunc(filt['name'], 'green'), filt['author'])
+
+    if args.prios:
+        for idx, prio in enumerate(get_issue_priority(None), start=1):
+            print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
+
+    if args.types:
+        for idx, typ in enumerate(get_issue_type(None)):
+            print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
+
+    if args.search:
+        issues = search_issues(args.search)
+        for issue in issues:
+            mode = (0 if not args.verbose else 1)
+            mode = (-1 if args.oneline else mode)
+            print format_issue(issue, mode, args.format)
+
+    if args.filter:
+        for filt in args.filter:
+            issues = get_issues_from_filter(filt)
+            for issue in issues:
+                mode = (0 if not args.verbose else 1)
+                mode = (-1 if args.oneline else mode)
+                print format_issue(issue, mode, args.format, args.commentsonly)
+
+
+def create(args):
+
+    if not args.project:
+        raise Exception('specify a project to create a issue in')
+
+    if not args.title:
+        raise Exception('specify a issue title')
+    else:
+        title = ' '.join(args.title)
+
+    if args.description:
+        description = ' '.join(args.description)
+    else:
+        description = DEFAULT_EDITOR_TEXT
+
+    print format_issue(create_issue(args.project, args.type, title, description,
+                                    args.priority), 0, args.format)
+
+
+def comment(args):
+
+    if args.comment:
+        comment = ' '.join(args.comment)
+    else:
+        comment = DEFAULT_EDITOR_TEXT
+
+    print add_comment(args.issue, comment)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog='jira-cli', description='command line tool for JIRAs XML-RPC interface')
+    parser.add_argument('--user', dest='username', help='username to login as', default=None)
+    parser.add_argument('--password', dest='password', help='password', default=None)
+
+    # options for output formatting:
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument('-o', '--oneline', help='print only one line of info', action='store_true')
+    group.add_argument('-c', '--comments-only', dest='commentsonly', help='show only the comments for a issue',
+                       action='store_true')
+    group.add_argument('-v', '--verbose', help='print extra information', action='store_true')
+    group.add_argument('-f', '--format', default=None,
+                       help='''custom format for output. allowed tokens:
+$status,
+$priority,
+$updated,
+$votes,
+$components,
+$project,
+$reporter,
+$created,
+$fixVersions,
+$summary,
+$environment,
+$assignee,
+$key,
+$affectsVersions,
+$type.
+
+examples:
+'$priority,$reporter'
+'$key $priority, reported by $reporter' ''')
+
+    # sub-commands:
+    subparsers = parser.add_subparsers(title='subcommands')
+
+    parser_list = subparsers.add_parser('list')
+    parser_list.set_defaults(func=list)
+
+    parser_list.add_argument('issue', help='issue id to list', nargs='?')
+    parser_list.add_argument('--types', help="print all issue 'types'", action='store_true')
+    parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
+    parser_list.add_argument('--filters', help='print available filters', action='store_true')
+    parser_list.add_argument('-f', '--filter', help='filter(s) to use for listing issues', nargs='+')
+    parser_list.add_argument('-s', '--search', help='search criteria')
+
+    parser_create = subparsers.add_parser('create')
+    parser_create.set_defaults(func=create)
+    parser_create.add_argument('project', help='project to create the issue in')
+    parser_create.add_argument('-T', '--title', help='create a new issue with given title', nargs='+')
+    parser_create.add_argument('-d', '--description', help='type of new issue', nargs='*')
+    parser_create.add_argument('-p', '--priority', help='priority of new issue', default='minor')
+    parser_create.add_argument('-t', '--type', help='type of new issue', default='task')
+
+    parser_comment = subparsers.add_parser('comment')
+    parser_comment.set_defaults(func=comment)
+    parser_comment.add_argument('issue', help='issue to comment')
+    parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
+
     try:
-        if opts.listfilters:
-            for idx, filt in enumerate(get_filters(), start=1):
-                print '%d. %s (Owner: %s)' % (idx, colorfunc(filt['name'], 'green'), filt['author'])
-        elif opts.listprios:
-            for idx, prio in enumerate(get_issue_priority(None), start=1):
-                print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
-        elif opts.listtypes:
-            for idx, typ in enumerate(get_issue_type(None)):
-                print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
-        else:
-            if opts.issue_type:
-                if not opts.jira_project:
-                    parser.error('specify a project to create a jira in')
-                if args:
-                    description = ' '.join(args)
-                else:
-                    description = DEFAULT_EDITOR_TEXT
-                print format_issue(create_issue(opts.jira_project, opts.issue_type, opts.issue_title, description,
-                                   opts.issue_priority), 0, opts.format)
-            elif opts.comment:
-                if not args:
-                    parser.error('specify the jira(s) to comment on')
-                for arg in args:
-                    print add_comment(arg, opts.comment)
-            elif opts.search:
-                issues = search_issues(opts.search)
-                for issue in issues:
-                    mode = (0 if not opts.verbose else 1)
-                    mode = (-1 if opts.oneline else mode)
-                    print format_issue(issue, mode, opts.format)
-            else:
-                # otherwise we're just showing the jira.
-                # maybe by filter
-                if opts.filter:
-                    for f in opts.filter.split(','):
-                        issues = get_issues_from_filter(f)
-                        for issue in issues:
-                            mode = (0 if not opts.verbose else 1)
-                            mode = (-1 if opts.oneline else mode)
-                            print format_issue(issue, mode, opts.format, opts.commentsonly)
-                else:
-                    if not args:
-                        parser.error('jira(s) id must be provided')
-                    if args:
-                        for arg in args:
-                            issue = get_jira(arg)
-                            mode = (0 if not opts.verbose else 1)
-                            mode = (-1 if opts.oneline else mode)
-                            print format_issue(issue, mode, opts.format, opts.commentsonly)
+        args = parser.parse_args()
+        check_auth(args.username, args.password)
+        args.func(args)
     except Exception, e:
         parser.error(colorfunc(str(e), 'red'))
 
