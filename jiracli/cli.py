@@ -323,20 +323,15 @@ examples: "%priority,%reporter","(%key) %priority, reported by %reporter" """)
     check_auth(opts.username, opts.password)
     try:
         if opts.listfilters:
-            idx = 1
-            for f in get_filters():
-                print '%d. %s (Owner: %s)' % (idx, f['name'], colorfunc(f['author'], 'green'))
-                idx += 1
+            for idx, filt in enumerate(get_filters(), start=1):
+                print '%d. %s (Owner: %s)' % (idx, colorfunc(filt['name'], 'green'), filt['author'])
         elif opts.listprios:
-            print 'Priorities:'
-            for el in get_issue_priority(None):
-                print el['name'] + ': ' + el['description']
+            for idx, prio in enumerate(get_issue_priority(None), start=1):
+                print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
         elif opts.listtypes:
-            print 'Issue Types:'
-            for el in get_issue_type(None):
-                print el['name'] + ': ' + el['description']
+            for idx, typ in enumerate(get_issue_type(None)):
+                print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
         else:
-
             if opts.issue_type:
                 if not opts.jira_project:
                     parser.error('specify a project to create a jira in')
