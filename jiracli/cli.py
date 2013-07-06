@@ -270,7 +270,7 @@ def main():
 ------------------------------------------------------------------------------------------
 view jira: jira-cli BE-193
 view multiple jiras: jira-cli XYZ-123 ZZZ-123 ABC-123
-add a comment: jira-cli -j BE-193 -c "i am sam"
+add a comment: jira-cli BE-193 -c "i am sam"
 create a new issue: jira-cli -n bug -p BE -t "i am sam" "and this is my long description
 ending
 here"
@@ -287,13 +287,13 @@ here"
     parser.add_option('-s', '--search', dest='search', help='search criteria')
     parser.add_option('', '--filter', dest='filter',
                       help='filter(s) to use for listing jiras. use a comma to separate multiple filters')
-    # # options which require jira-id to act on:
-    parser.add_option('-c', '--comment', dest='comment', help='comment on a jira')
+    # options which require jira-id to act on:
+    parser.add_option('-c', '--comment', dest='comment', help='comment on jira(s)')
     parser.add_option('-n', '--new', dest='issue_type', help='create a new issue with given title')
     parser.add_option('-p', '--priority', dest='issue_priority', help='priority of new issue', default='minor')
     parser.add_option('-t', '--title', dest='issue_title', help='new issue title')
     parser.add_option('-P', '--project', dest='jira_project', help='the jira project to act on')
-    # # options wich formatting output:
+    # options wich formatting output:
     parser.add_option('', '--oneline', dest='oneline', help='print only one line of info', action='store_true')
     parser.add_option('', '--comments-only', dest='commentsonly', help='show only the comments for a jira',
                       action='store_true')
@@ -348,8 +348,9 @@ examples: "%priority,%reporter","(%key) %priority, reported by %reporter" """)
                                    opts.issue_priority), 0, opts.format)
             elif opts.comment:
                 if not args:
-                    parser.error('specify the jira to comment on')
-                print add_comment(args, opts.comment)
+                    parser.error('specify the jira(s) to comment on')
+                for arg in args:
+                    print add_comment(arg, opts.comment)
             elif opts.search:
                 issues = search_issues(opts.search)
                 for issue in issues:
