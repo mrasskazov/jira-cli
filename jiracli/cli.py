@@ -192,9 +192,11 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
         return fields['comments'].strip()
     elif mode < 0:
         url_str = colorfunc('%s/browse/%s' % (JIRABASE, issue['key']), 'white', attrs=['underline'])
-        ret_str = colorfunc(issue['key'], status_color) + ' ' + issue.setdefault('summary', '') + ' ' + url_str
-        if not COLOR:
-            ret_str += ' [%s] ' % get_issue_status(issue['status'])
+        if COLOR:
+            ret_str = colorfunc(issue['key'], status_color)
+        else:
+            ret_str = issue['key'] + ' [%s] ' % get_issue_status(issue['status'])
+        ret_str += ' ' + issue.setdefault('summary', '') + ' ' + url_str
         return ret_str
     for key, value in fields.items():
         if not value:
