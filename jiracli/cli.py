@@ -38,6 +38,7 @@ def get_text_from_editor(def_text):
 
 
 def get_issue_type(issuetype):
+    ''' get either all available issue types if no `issuetype` given, or issue type id found by name'''
     if os.path.isfile(os.path.expanduser('~/.jira-cli/types.pkl')):
         issue_types = pickle.load(open(os.path.expanduser('~/.jira-cli/types.pkl'), 'rb'))
     else:
@@ -54,6 +55,7 @@ def get_issue_type(issuetype):
 
 
 def get_issue_status(stat):
+    ''' get either all available statuses if no `stat` given, or status name found by id'''
     if os.path.isfile(os.path.expanduser('~/.jira-cli/statuses.pkl')):
         issue_statuses = pickle.load(open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'rb'))
     else:
@@ -70,6 +72,7 @@ def get_issue_status(stat):
 
 
 def get_issue_priority(priority):
+    ''' get either all available priorities if no `priority` given, or priority id found by name'''
     if os.path.isfile(os.path.expanduser('~/.jira-cli/priorities.pkl')):
         issue_priorities = pickle.load(open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'rb'))
     else:
@@ -86,6 +89,8 @@ def get_issue_priority(priority):
 
 
 def check_auth(username, password, jirabase):
+    ''' check credentials against jira instance and authenticate '''
+
     global JIRABASE, JIRAOBJ, TOKEN
 
     if not os.path.isdir(os.path.expanduser('~/.jira-cli')):
@@ -105,7 +110,7 @@ def check_auth(username, password, jirabase):
         if not password:
             password = getpass.getpass('enter password:')
         try:
-            token = JIRAOBJ.login(username, password)
+            token = JIRAOBJ.service.login(username, password)
         except Exception, ex:
             print vars(ex)
             print colorfunc('username or password incorrect, try again.', 'red')
@@ -135,7 +140,7 @@ def check_auth(username, password, jirabase):
         JIRABASE = jirabase
     JIRABASE = _validate_jira_url(JIRABASE)
     JIRAOBJ = Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
-    logging.warn(JIRAOBJ)
+    logging.debug(JIRAOBJ)
 
     if os.path.isfile(os.path.expanduser('~/.jira-cli/auth')):
         TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read().strip()
@@ -143,9 +148,11 @@ def check_auth(username, password, jirabase):
 
 
 def format_issue(issue, mode=0, formatter=None, comments_only=False):
+    ''' formatting output for a issue according the different modes '''
+
     fields = {}
-    status_color = 'blue'
     status_string = get_issue_status(issue.status).lower()
+    status_color = 'blue'
     if status_string in ['resolved', 'closed']:
         status_color = 'green'
     elif status_string in ['open', 'unassigned', 'reopened']:
@@ -182,8 +189,9 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
         fields['description'] = issue.description
         fields['priority'] = get_issue_priority(issue.priority)
         fields['type'] = get_issue_type(issue.type)
+        fields['components'] = ', '.join([component.name for component in issue.components])
         comments = get_comments(issue['key'])
-        fields['comments'] = '\n'
+        fields['comments'] = ''
         for comment in comments:
             comment_str = comment['body'].strip()
             fields['comments'] += '%s %s : %s\n' % (colorfunc(comment['created'], 'blue'), colorfunc(comment['author'],
@@ -211,14 +219,18 @@ def search_issues(criteria):
 def get_issue(jira_id):
     try:
         return JIRAOBJ.service.getIssue(TOKEN, jira_id)
-    except Exception, ex:
-        print vars(ex)
-        sys.exit(colorfunc('This issue does not exist', 'red'))
+    except WebFault, ex:
+        error_msg = str(ex).replace('\n', ' ')
+        sys.exit('failed to get issue %s: %s' % (jira_id, error_msg))
 
 
 def get_filters():
     filters = JIRAOBJ.service.getFavouriteFilters(TOKEN)
     return dict((k['name'], k) for k in filters).values()
+
+
+def get_components(project):
+    return JIRAOBJ.service.getComponents(TOKEN, project.upper())
 
 
 def get_filter_id_from_name(name):
@@ -244,30 +256,45 @@ def add_comment(jira_id, comment):
     if not comment or comment == DEFAULT_EDITOR_TEXT:
         comment = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'comment')
     try:
-        JIRAOBJ.service.addComment(TOKEN, jira_id,  comment)
+        JIRAOBJ.service.addComment(TOKEN, jira_id, comment)
         return 'comment "%s" added to %s' % (comment, jira_id)
     except WebFault, ex:
         error_msg = str(ex).replace('\n', ' ')
         return 'failed to add comment to %s: %s' % (jira_id, error_msg)
 
 
-def create_issue(project, issue_type=0, summary='', description='', priority='Major'):
+def create_issue(project, issue_type=0, summary='', description='', priority='Major', components=None):
     if not description or description == DEFAULT_EDITOR_TEXT:
-        description = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'new issue')
+        description = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'description')
 
+    if components and isinstance(components, list):
+        remote_components = []
+        for remote_component in get_components(project):
+            for component in components:
+                if component in [remote_component.id, remote_component.name]:
+                    remote_components.append(remote_component)
     issue = {
         'project': project.upper(),
         'type': get_issue_type(issue_type),
         'summary': summary,
         'description': description,
         'priority': get_issue_priority(priority),
+        'components': remote_components,
     }
     return JIRAOBJ.service.createIssue(TOKEN, issue)
 
 
-def list(args):
+def command_list(args):
+    ''' entry point for 'list' subcommand '''
 
-    if not any([args.filters, args.prios, args.types, args.search, args.filter]):
+    if not any([
+        args.filters,
+        args.prios,
+        args.types,
+        args.search,
+        args.filter,
+        args.components,
+    ]):
         if not args.issue:
             raise Exception('issue id must be provided')
         for issue in args.issue:
@@ -288,6 +315,10 @@ def list(args):
         for idx, typ in enumerate(get_issue_type(None)):
             print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
 
+    if args.components:
+        for idx, comp in enumerate(get_components(args.components)):
+            print '%d. %s: %s' % (idx, colorfunc(comp['id'], 'green'), comp['name'])
+
     if args.search:
         issues = search_issues(args.search)
         for issue in issues:
@@ -304,7 +335,8 @@ def list(args):
                 print format_issue(issue, mode, args.format, args.commentsonly)
 
 
-def create(args):
+def command_create(args):
+    '''entry point for 'create' subcommand '''
 
     if not args.project:
         raise Exception('specify a project to create a issue in')
@@ -319,10 +351,12 @@ def create(args):
     else:
         description = DEFAULT_EDITOR_TEXT
 
-    print format_issue(create_issue(args.project, args.type, title, description, args.priority), 0, args.format)
+    print format_issue(create_issue(args.project, args.type, title, description, args.priority,
+                       components=args.components), 0, args.format)
 
 
-def comment(args):
+def command_comment(args):
+    '''entry point for 'comment' subcommand '''
 
     if args.comment:
         comment = ' '.join(args.comment)
@@ -333,7 +367,7 @@ def comment(args):
 
 
 def setup_argparser():
-    """setting up and returning command line arguments parser"""
+    '''setting up and returning command line arguments parser'''
 
     parser = argparse.ArgumentParser(prog='jira-cli', description='command line utility for interacting with jira')
     parser.add_argument('--user', dest='username', help='username to login as', default=None)
@@ -373,24 +407,26 @@ examples:
     subparsers = parser.add_subparsers(title='subcommands')
 
     parser_list = subparsers.add_parser('list')
-    parser_list.set_defaults(func=list)
+    parser_list.set_defaults(func=command_list)
     parser_list.add_argument('issue', help='issue id to list', nargs='*')
     parser_list.add_argument('--types', help="print all issue 'types'", action='store_true')
     parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
     parser_list.add_argument('--filters', help='print available filters', action='store_true')
+    parser_list.add_argument('--components', help='print components by project')
     parser_list.add_argument('-f', '--filter', help='filter(s) to use for listing issues', nargs='+')
     parser_list.add_argument('-s', '--search', help='search criteria')
 
     parser_create = subparsers.add_parser('create')
-    parser_create.set_defaults(func=create)
+    parser_create.set_defaults(func=command_create)
     parser_create.add_argument('project', help='project to create the issue in')
     parser_create.add_argument('-T', '--title', help='create a new issue with given title', nargs='+')
     parser_create.add_argument('-d', '--description', help='type of new issue', nargs='*')
     parser_create.add_argument('-p', '--priority', help='priority of new issue', default='minor')
     parser_create.add_argument('-t', '--type', help='type of new issue', default='task')
+    parser_create.add_argument('-c', '--components', help='components of new issue', nargs='*')
 
     parser_comment = subparsers.add_parser('comment')
-    parser_comment.set_defaults(func=comment)
+    parser_comment.set_defaults(func=command_comment)
     parser_comment.add_argument('issue', help='issue to comment')
     parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
 
@@ -401,8 +437,8 @@ def main():
     try:
         parser = setup_argparser()
         args = parser.parse_args()
-    except Exception, e:
-        parser.error(colorfunc(str(e), 'red'))
+    except Exception, ex:
+        parser.error(colorfunc(str(ex), 'red'))
     check_auth(args.username, args.password, args.jirabase)
     args.func(args)
 
