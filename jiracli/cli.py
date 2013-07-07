@@ -6,13 +6,13 @@ import re
 import os
 import argparse
 import tempfile
-import xmlrpclib
 import socket
 import pickle
 import sys
-import xml
 import urllib2
-
+import logging
+from suds.client import Client
+from suds import WebFault
 from termcolor import colored as colorfunc
 
 JIRABASE = None
@@ -24,6 +24,9 @@ if not sys.stdout.isatty():
     COLOR = False
 DEFAULT_EDITOR_TEXT = '''-- enter the text for the %s
 -- all lines starting with '--' will be removed'''
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger('suds.client').setLevel(logging.INFO)
 
 
 def get_text_from_editor(def_text):
@@ -38,7 +41,7 @@ def get_issue_type(issuetype):
     if os.path.isfile(os.path.expanduser('~/.jira-cli/types.pkl')):
         issue_types = pickle.load(open(os.path.expanduser('~/.jira-cli/types.pkl'), 'rb'))
     else:
-        issue_types = JIRAOBJ.jira1.getIssueTypes(TOKEN)
+        issue_types = JIRAOBJ.service.getIssueTypes(TOKEN)
         pickle.dump(issue_types, open(os.path.expanduser('~/.jira-cli/types.pkl'), 'wb'))
 
     if not issuetype:
@@ -54,7 +57,7 @@ def get_issue_status(stat):
     if os.path.isfile(os.path.expanduser('~/.jira-cli/statuses.pkl')):
         issue_statuses = pickle.load(open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'rb'))
     else:
-        issue_statuses = JIRAOBJ.jira1.getStatuses(TOKEN)
+        issue_statuses = JIRAOBJ.service.getStatuses(TOKEN)
         pickle.dump(issue_statuses, open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'wb'))
 
     if not stat:
@@ -70,7 +73,7 @@ def get_issue_priority(priority):
     if os.path.isfile(os.path.expanduser('~/.jira-cli/priorities.pkl')):
         issue_priorities = pickle.load(open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'rb'))
     else:
-        issue_priorities = JIRAOBJ.jira1.getPriorities(TOKEN)
+        issue_priorities = JIRAOBJ.service.getPriorities(TOKEN)
         pickle.dump(issue_priorities, open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'wb'))
 
     if not priority:
@@ -91,9 +94,10 @@ def check_auth(username, password, jirabase):
     def _validate_login(username, password, token=None):
         if token:
             try:
-                JIRAOBJ.jira1.getIssueTypes(token)
+                JIRAOBJ.service.getIssueTypes(token)
                 return token
-            except xmlrpclib.Fault:
+            except Exception, ex:
+                print vars(ex)
                 return _validate_login(None, None)
 
         if not username:
@@ -101,8 +105,9 @@ def check_auth(username, password, jirabase):
         if not password:
             password = getpass.getpass('enter password:')
         try:
-            token = JIRAOBJ.jira1.login(username, password)
-        except xmlrpclib.Fault:
+            token = JIRAOBJ.login(username, password)
+        except Exception, ex:
+            print vars(ex)
             print colorfunc('username or password incorrect, try again.', 'red')
             return _validate_login(None, None)
         open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(token)
@@ -114,19 +119,23 @@ def check_auth(username, password, jirabase):
         else:
             JIRABASE = url
         try:
-            urllib2.urlopen('%s/rpc/xmlrpc' % JIRABASE)
-            xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
-        except (xml.parsers.expat.ExpatError, xmlrpclib.ProtocolError, socket.gaierror, IOError):
+            urllib2.urlopen('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
+            Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
+        except (socket.gaierror, IOError):
             print colorfunc('invalid url %s. Please provide the correct url for your jira instance' % JIRABASE, 'red')
             return _validate_jira_url()
+        except Exception, ex:
+            raise ex
         open(os.path.expanduser('~/.jira-cli/config'), 'w').write(JIRABASE)
         return JIRABASE
+
     if os.path.isfile(os.path.expanduser('~/.jira-cli/config')):
         JIRABASE = open(os.path.expanduser('~/.jira-cli/config')).read().strip()
     if jirabase:
         JIRABASE = jirabase
     JIRABASE = _validate_jira_url(JIRABASE)
-    JIRAOBJ = xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
+    JIRAOBJ = Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
+    logging.warn(JIRAOBJ)
 
     if os.path.isfile(os.path.expanduser('~/.jira-cli/auth')):
         TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read().strip()
@@ -136,7 +145,7 @@ def check_auth(username, password, jirabase):
 def format_issue(issue, mode=0, formatter=None, comments_only=False):
     fields = {}
     status_color = 'blue'
-    status_string = get_issue_status(issue.setdefault('status', '1')).lower()
+    status_string = get_issue_status(issue.status).lower()
     if status_string in ['resolved', 'closed']:
         status_color = 'green'
     elif status_string in ['open', 'unassigned', 'reopened']:
@@ -159,21 +168,20 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
                         data = item['name']
                 ret_str = ret_str.replace(key, data)
             else:
-                ret_str = ret_str.replace(key, issue.setdefault(value.lower(), ''))
+                ret_str = ret_str.replace(key, str(getattr(issue, value)))
         return ret_str
 
     if mode >= 0:
-        # minimal
         fields['issue'] = issue['key']
         fields['status'] = colorfunc(get_issue_status(issue['status']), status_color)
-        fields['reporter'] = issue.setdefault('reporter', '')
-        fields['assignee'] = issue.setdefault('assignee', '')
-        fields['summary'] = issue.setdefault('summary', '')
+        fields['reporter'] = issue.reporter
+        fields['assignee'] = issue.assignee
+        fields['summary'] = issue.summary
         fields['link'] = colorfunc('%s/browse/%s' % (JIRABASE, issue['key']), 'white', attrs=['underline'])
     if mode >= 1 or comments_only:
-        fields['description'] = issue.setdefault('description', '')
-        fields['priority'] = get_issue_priority(issue.setdefault('priority', ''))
-        fields['type'] = get_issue_type(issue.setdefault('type', ''))
+        fields['description'] = issue.description
+        fields['priority'] = get_issue_priority(issue.priority)
+        fields['type'] = get_issue_type(issue.type)
         comments = get_comments(issue['key'])
         fields['comments'] = '\n'
         for comment in comments:
@@ -188,7 +196,7 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
             ret_str = colorfunc(issue['key'], status_color)
         else:
             ret_str = issue['key'] + ' [%s] ' % get_issue_status(issue['status'])
-        ret_str += ' ' + issue.setdefault('summary', '') + ' ' + url_str
+        ret_str += ' ' + issue.summary + ' ' + url_str
         return ret_str
     for key, value in fields.items():
         if not value:
@@ -197,23 +205,24 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
 
 
 def search_issues(criteria):
-    return JIRAOBJ.jira1.getIssuesFromTextSearch(TOKEN, criteria)
+    return JIRAOBJ.service.getIssuesFromTextSearch(TOKEN, criteria)
 
 
 def get_issue(jira_id):
     try:
-        return JIRAOBJ.jira1.getIssue(TOKEN, jira_id)
-    except xmlrpclib.Fault:
+        return JIRAOBJ.service.getIssue(TOKEN, jira_id)
+    except Exception, ex:
+        print vars(ex)
         sys.exit(colorfunc('This issue does not exist', 'red'))
 
 
 def get_filters(favorites=False):
     filters = None
     if favorites:
-        favorites = JIRAOBJ.jira1.getFavouriteFilters(TOKEN)
+        favorites = JIRAOBJ.service.getFavouriteFilters(TOKEN)
         filters = dict((k['name'], k) for k in favorites)
     else:
-        saved = JIRAOBJ.jira1.getSavedFilters(TOKEN)
+        saved = JIRAOBJ.service.getSavedFilters(TOKEN)
         filters = dict((k['name'], k) for k in saved)
 
     return filters.values()
@@ -230,26 +239,27 @@ def get_filter_id_from_name(name):
 def get_issues_from_filter(filter_name):
     fid = get_filter_id_from_name(filter_name)
     if fid:
-        return JIRAOBJ.jira1.getIssuesFromFilter(TOKEN, fid)
+        return JIRAOBJ.service.getIssuesFromFilter(TOKEN, fid)
     return []
 
 
 def get_comments(jira_id):
-    return JIRAOBJ.jira1.getComments(TOKEN, jira_id)
+    return JIRAOBJ.service.getComments(TOKEN, jira_id)
 
 
 def add_comment(jira_id, comment):
-    if comment == DEFAULT_EDITOR_TEXT:
+    if not comment or comment == DEFAULT_EDITOR_TEXT:
         comment = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'comment')
-    res = JIRAOBJ.jira1.addComment(TOKEN, jira_id, comment)
-    if res:
+    try:
+        JIRAOBJ.service.addComment(TOKEN, jira_id,  comment)
         return 'comment "%s" added to %s' % (comment, jira_id)
-    else:
-        return 'failed to add comment to %s' % jira_id
+    except WebFault, ex:
+        error_msg = str(ex).replace('\n', ' ')
+        return 'failed to add comment to %s: %s' % (jira_id, error_msg)
 
 
 def create_issue(project, issue_type=0, summary='', description='', priority='Major'):
-    if description == DEFAULT_EDITOR_TEXT:
+    if not description or description == DEFAULT_EDITOR_TEXT:
         description = get_text_from_editor(DEFAULT_EDITOR_TEXT % 'new issue')
 
     issue = {
@@ -259,7 +269,7 @@ def create_issue(project, issue_type=0, summary='', description='', priority='Ma
         'description': description,
         'priority': get_issue_priority(priority),
     }
-    return JIRAOBJ.jira1.createIssue(TOKEN, issue)
+    return JIRAOBJ.service.createIssue(TOKEN, issue)
 
 
 def list(args):
@@ -371,7 +381,6 @@ examples:
 
     parser_list = subparsers.add_parser('list')
     parser_list.set_defaults(func=list)
-
     parser_list.add_argument('issue', help='issue id to list', nargs='*')
     parser_list.add_argument('--types', help="print all issue 'types'", action='store_true')
     parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
