@@ -216,16 +216,9 @@ def get_issue(jira_id):
         sys.exit(colorfunc('This issue does not exist', 'red'))
 
 
-def get_filters(favorites=False):
-    filters = None
-    if favorites:
-        favorites = JIRAOBJ.service.getFavouriteFilters(TOKEN)
-        filters = dict((k['name'], k) for k in favorites)
-    else:
-        saved = JIRAOBJ.service.getSavedFilters(TOKEN)
-        filters = dict((k['name'], k) for k in saved)
-
-    return filters.values()
+def get_filters():
+    filters = JIRAOBJ.service.getFavouriteFilters(TOKEN)
+    return dict((k['name'], k) for k in filters).values()
 
 
 def get_filter_id_from_name(name):
