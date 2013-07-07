@@ -94,7 +94,7 @@ def search_issues(criteria):
     return JIRAOBJ.jira1.getIssuesFromTextSearch(TOKEN, criteria)
 
 
-def check_auth(username, password):
+def check_auth(username, password, jirabase):
     global JIRABASE, JIRAOBJ, TOKEN
 
     setup_home_dir()
@@ -132,9 +132,10 @@ def check_auth(username, password):
             return _validate_jira_url()
         open(os.path.expanduser('~/.jira-cli/config'), 'w').write(JIRABASE)
         return JIRABASE
-
     if os.path.isfile(os.path.expanduser('~/.jira-cli/config')):
         JIRABASE = open(os.path.expanduser('~/.jira-cli/config')).read().strip()
+    if jirabase:
+        JIRABASE = jirabase
     JIRABASE = _validate_jira_url(JIRABASE)
     JIRAOBJ = xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
 
@@ -335,10 +336,13 @@ def comment(args):
     print add_comment(args.issue, comment)
 
 
-def main():
+def setup_argparser():
+    """setting up and returning command line arguments parser"""
+
     parser = argparse.ArgumentParser(prog='jira-cli', description='command line utility for interacting with jira')
     parser.add_argument('--user', dest='username', help='username to login as', default=None)
     parser.add_argument('--password', dest='password', help='password', default=None)
+    parser.add_argument('--jirabase', help='base url to jira instance', default=None)
 
     # options for output formatting:
     group = parser.add_mutually_exclusive_group()
@@ -395,9 +399,14 @@ examples:
     parser_comment.add_argument('issue', help='issue to comment')
     parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
 
+    return parser
+
+
+def main():
     try:
+        parser = setup_argparser()
         args = parser.parse_args()
-        check_auth(args.username, args.password)
+        check_auth(args.username, args.password, args.jirabase)
         args.func(args)
     except Exception, e:
         parser.error(colorfunc(str(e), 'red'))
