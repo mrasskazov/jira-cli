@@ -11,12 +11,13 @@ import socket
 import pickle
 import sys
 import xml
+import urllib2
+
 from termcolor import colored as colorfunc
 
 JIRABASE = None
 JIRAOBJ = None
 TOKEN = None
-TYPES = {}
 COLOR = True
 if not sys.stdout.isatty():
     colorfunc = lambda *a, **k: str(a[0])  # NOQA
@@ -98,52 +99,52 @@ def check_auth(username, password):
 
     setup_home_dir()
 
-    def _login(username, password):
+    def _validate_login(username, password, token=None):
+        if token:
+            try:
+                JIRAOBJ.jira1.getIssueTypes(token)
+                return token
+            except xmlrpclib.Fault:
+                return _validate_login(None, None)
+
         if not username:
-            sys.stderr.write('enter username:')
-            username = sys.stdin.readline().strip()
+            username = raw_input('enter username:')
         if not password:
             password = getpass.getpass('enter password:')
         try:
-            return JIRAOBJ.jira1.login(username, password)
-        except:
-            print >> sys.stderr, colorfunc('username or password incorrect, try again.', 'red')
-            return _login(None, None)
+            token = JIRAOBJ.jira1.login(username, password)
+        except xmlrpclib.Fault:
+            print colorfunc('username or password incorrect, try again.', 'red')
+            return _validate_login(None, None)
+        open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(token)
+        return token
 
     def _validate_jira_url(url=None):
-        global JIRABASE, JIRAOBJ, TOKEN
         if not url:
             JIRABASE = raw_input('base url for your jira instance (e.g http://issues.apache.org/jira):')
         else:
             JIRABASE = url
         try:
-            JIRAOBJ = xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
-            # lame ping method
-            JIRAOBJ.getIssueTypes()
+            urllib2.urlopen('%s/rpc/xmlrpc' % JIRABASE)
+            xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
         except (xml.parsers.expat.ExpatError, xmlrpclib.ProtocolError, socket.gaierror, IOError):
-            print >> colorfunc('invalid url %s. Please provide the correct url for your jira installation' % JIRABASE,
-                               'red')
+            print colorfunc('invalid url %s. Please provide the correct url for your jira instance' % JIRABASE, 'red')
             return _validate_jira_url()
-        except Exception:
-            open(os.path.expanduser('~/.jira-cli/config'), 'w').write(JIRABASE)
-        return None
+        open(os.path.expanduser('~/.jira-cli/config'), 'w').write(JIRABASE)
+        return JIRABASE
 
     if os.path.isfile(os.path.expanduser('~/.jira-cli/config')):
         JIRABASE = open(os.path.expanduser('~/.jira-cli/config')).read().strip()
-    _validate_jira_url(JIRABASE)
+    JIRABASE = _validate_jira_url(JIRABASE)
+    JIRAOBJ = xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
+
     if os.path.isfile(os.path.expanduser('~/.jira-cli/auth')):
-        TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read()
-    try:
-        JIRAOBJ = xmlrpclib.ServerProxy('%s/rpc/xmlrpc' % JIRABASE)
-        JIRAOBJ.jira1.getIssueTypes(TOKEN)
-    except Exception:
-        TOKEN = _login(username, password)
-        open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(TOKEN)
+        TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read().strip()
+    TOKEN = _validate_login(username, password, token=TOKEN)
 
 
 def format_issue(issue, mode=0, formatter=None, comments_only=False):
     fields = {}
-    global colorfunc
     status_color = 'blue'
     status_string = get_issue_status(issue.setdefault('status', '1')).lower()
     if status_string in ['resolved', 'closed']:
@@ -159,12 +160,12 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
         for key, value in groups:
 
             if value.lower() in special_fields.keys():
-                id = issue[value.lower()]
+                issue_id = issue[value.lower()]
                 meth = special_fields[value.lower()]
                 mappings = meth(None)
                 data = ''
                 for item in mappings:
-                    if item['id'] == id:
+                    if item['id'] == issue_id:
                         data = item['name']
                 ret_str = ret_str.replace(key, data)
             else:
@@ -208,8 +209,8 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
 def get_jira(jira_id):
     try:
         return JIRAOBJ.jira1.getIssue(TOKEN, jira_id)
-    except:
-        return {'key': jira_id}
+    except xmlrpclib.Fault:
+        sys.exit(colorfunc('This issue does not exist', 'red'))
 
 
 def get_filters(favorites=False):
@@ -321,8 +322,7 @@ def create(args):
     else:
         description = DEFAULT_EDITOR_TEXT
 
-    print format_issue(create_issue(args.project, args.type, title, description,
-                                    args.priority), 0, args.format)
+    print format_issue(create_issue(args.project, args.type, title, description, args.priority), 0, args.format)
 
 
 def comment(args):
