@@ -34,14 +34,7 @@ def get_text_from_editor(def_text):
     return '\n'.join([k for k in open(tmp).read().split('\n') if not k.startswith('--')])
 
 
-def setup_home_dir():
-    if not os.path.isdir(os.path.expanduser('~/.jira-cli')):
-        os.makedirs(os.path.expanduser('~/.jira-cli'))
-
-
 def get_issue_type(issuetype):
-    if issuetype:
-        issuetype = issuetype.lower()
     if os.path.isfile(os.path.expanduser('~/.jira-cli/types.pkl')):
         issue_types = pickle.load(open(os.path.expanduser('~/.jira-cli/types.pkl'), 'rb'))
     else:
@@ -51,14 +44,13 @@ def get_issue_type(issuetype):
     if not issuetype:
         return issue_types
     else:
+        issuetype = issuetype.lower()
         for types in issue_types:
             if types['name'].lower() == issuetype:
                 return types['id']
 
 
 def get_issue_status(stat):
-    if stat:
-        stat = stat.lower()
     if os.path.isfile(os.path.expanduser('~/.jira-cli/statuses.pkl')):
         issue_statuses = pickle.load(open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'rb'))
     else:
@@ -68,14 +60,13 @@ def get_issue_status(stat):
     if not stat:
         return issue_statuses
     else:
+        stat = stat.lower()
         for status in issue_statuses:
             if status['id'].lower() == stat:
                 return status['name']
 
 
 def get_issue_priority(priority):
-    if priority:
-        priority = priority.lower()
     if os.path.isfile(os.path.expanduser('~/.jira-cli/priorities.pkl')):
         issue_priorities = pickle.load(open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'rb'))
     else:
@@ -85,19 +76,17 @@ def get_issue_priority(priority):
     if not priority:
         return issue_priorities
     else:
+        priority = priority.lower()
         for prio in issue_priorities:
             if prio['name'].lower() == priority:
                 return prio['id']
 
 
-def search_issues(criteria):
-    return JIRAOBJ.jira1.getIssuesFromTextSearch(TOKEN, criteria)
-
-
 def check_auth(username, password, jirabase):
     global JIRABASE, JIRAOBJ, TOKEN
 
-    setup_home_dir()
+    if not os.path.isdir(os.path.expanduser('~/.jira-cli')):
+        os.makedirs(os.path.expanduser('~/.jira-cli'))
 
     def _validate_login(username, password, token=None):
         if token:
@@ -207,7 +196,11 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
     return '\n'.join(': '.join((k.ljust(20), v)) for (k, v) in fields.items()) + '\n'
 
 
-def get_jira(jira_id):
+def search_issues(criteria):
+    return JIRAOBJ.jira1.getIssuesFromTextSearch(TOKEN, criteria)
+
+
+def get_issue(jira_id):
     try:
         return JIRAOBJ.jira1.getIssue(TOKEN, jira_id)
     except xmlrpclib.Fault:
@@ -275,7 +268,7 @@ def list(args):
         if not args.issue:
             raise Exception('issue id must be provided')
         for issue in args.issue:
-            issue_id = get_jira(issue)
+            issue_id = get_issue(issue)
             mode = (0 if not args.verbose else 1)
             mode = (-1 if args.oneline else mode)
             print format_issue(issue_id, mode, args.format, args.commentsonly)
@@ -406,10 +399,10 @@ def main():
     try:
         parser = setup_argparser()
         args = parser.parse_args()
-        check_auth(args.username, args.password, args.jirabase)
-        args.func(args)
     except Exception, e:
         parser.error(colorfunc(str(e), 'red'))
+    check_auth(args.username, args.password, args.jirabase)
+    args.func(args)
 
 
 if __name__ == '__main__':
