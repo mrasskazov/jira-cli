@@ -242,6 +242,14 @@ def create_issue(project, issue_type=0, summary='', description='', priority='Ma
     return JIRAOBJ.service.createIssue(TOKEN, issue)
 
 
+def progress(issue_id, action):
+    '''perform transition action on issue '''
+
+    return JIRAOBJ.service.progressWorkflowAction(TOKEN, issue_id, action.id)
+
+
+# --- simple "getter" functions ---
+
 def search_issues(criteria):
     return JIRAOBJ.service.getIssuesFromTextSearch(TOKEN, criteria)
 
@@ -282,6 +290,12 @@ def get_comments(jira_id):
     return JIRAOBJ.service.getComments(TOKEN, jira_id)
 
 
+def get_actions(jira_id):
+    return JIRAOBJ.service.getAvailableActions(TOKEN, jira_id)
+
+
+# --- command functions ---
+
 def command_list(args):
     ''' entry point for 'list' subcommand '''
 
@@ -310,11 +324,11 @@ def command_list(args):
             print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
 
     if args.types:
-        for idx, typ in enumerate(get_issue_type(None)):
+        for idx, typ in enumerate(get_issue_type(None), start=1):
             print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
 
     if args.components:
-        for idx, comp in enumerate(get_components(args.components)):
+        for idx, comp in enumerate(get_components(args.components), start=1):
             print '%d. %s: %s' % (idx, colorfunc(comp['id'], 'green'), comp['name'])
 
     if args.search:
@@ -367,6 +381,45 @@ def command_comment(args):
 
     print add_comment(args.issue, comment)
 
+
+def command_progress(args):
+    '''entry point for 'progress' subcommand '''
+
+    if not args.issue:
+        raise Exception('issue id must be provided')
+
+    available_actions = get_actions(args.issue)
+    available_actions_names = [action.name.lower() for action in available_actions]
+
+    if args.actions:
+        for idx, action in enumerate(available_actions, start=1):
+            print '%d. %s: %s' % (idx, colorfunc(action.id, 'green'), action.name)
+
+    if args.start:
+        if 'start progress' in available_actions_names:
+            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
+                               == 'start progress'), None)), 0, args.format)
+        else:
+            sys.exit('unable to start progress on "%s", available actions are: "%s"' % (args.issue,
+                     available_actions_names))
+
+    if args.stop:
+        if 'stop progress' in available_actions_names:
+            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
+                               == 'stop progress'), None)), 0, args.format)
+        else:
+            sys.exit('unable to stop progress on "%s", available actions are: "%s"' % (args.issue,
+                     available_actions_names))
+
+    if args.close:
+        if 'close issue' in available_actions_names:
+            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
+                               == 'close issue'), None)), 0, args.format)
+        else:
+            sys.exit('unable to close "%s", available actions are: "%s"' % (args.issue, available_actions_names))
+
+
+# --- boiler plate and main entry point ---
 
 def setup_argparser():
     '''setting up and returning command line arguments parser'''
@@ -432,6 +485,15 @@ examples:
     parser_comment.add_argument('issue', help='issue to comment')
     parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
 
+    parser_progress = subparsers.add_parser('progress')
+    parser_progress.set_defaults(func=command_progress)
+    parser_progress.add_argument('issue', help='issue to progress')
+    parser_progress.add_argument('-a', '--actions', help='list available actions', action='store_true')
+    group = parser_progress.add_mutually_exclusive_group()
+    group.add_argument('--start', help='start progress', action='store_true')
+    group.add_argument('--stop', help='stop progress', action='store_true')
+    group.add_argument('-c', '--close', help='close issue', action='store_true')
+
     return parser
 
 
@@ -439,8 +501,9 @@ def main():
     try:
         parser = setup_argparser()
         args = parser.parse_args()
+        print args
     except Exception, ex:
-        parser.error(colorfunc(str(ex), 'red'))
+        sys.exit(colorfunc(str(ex), 'red'))
     check_auth(args.username, args.password, args.jirabase)
     args.func(args)
 
