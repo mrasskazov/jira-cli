@@ -272,10 +272,11 @@ def list(args):
     if not any([args.filters, args.prios, args.types, args.search, args.filter]):
         if not args.issue:
             raise Exception('issue id must be provided')
-        issue = get_jira(args.issue)
-        mode = (0 if not args.verbose else 1)
-        mode = (-1 if args.oneline else mode)
-        print format_issue(issue, mode, args.format, args.commentsonly)
+        for issue in args.issue:
+            issue_id = get_jira(issue)
+            mode = (0 if not args.verbose else 1)
+            mode = (-1 if args.oneline else mode)
+            print format_issue(issue_id, mode, args.format, args.commentsonly)
 
     if args.filters:
         for idx, filt in enumerate(get_filters(), start=1):
@@ -335,7 +336,7 @@ def comment(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='jira-cli', description='command line tool for JIRAs XML-RPC interface')
+    parser = argparse.ArgumentParser(prog='jira-cli', description='command line utility for interacting with jira')
     parser.add_argument('--user', dest='username', help='username to login as', default=None)
     parser.add_argument('--password', dest='password', help='password', default=None)
 
@@ -374,7 +375,7 @@ examples:
     parser_list = subparsers.add_parser('list')
     parser_list.set_defaults(func=list)
 
-    parser_list.add_argument('issue', help='issue id to list', nargs='?')
+    parser_list.add_argument('issue', help='issue id to list', nargs='*')
     parser_list.add_argument('--types', help="print all issue 'types'", action='store_true')
     parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
     parser_list.add_argument('--filters', help='print available filters', action='store_true')
