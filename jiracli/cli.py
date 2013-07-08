@@ -20,7 +20,7 @@ JIRAOBJ = None
 TOKEN = None
 COLOR = True
 if not sys.stdout.isatty():
-    colorfunc = lambda *a, **k: str(a[0])  # NOQA
+    colorfunc = lambda *a, **k: str(a[0])  # NOQA  # silence pyflakes
     COLOR = False
 DEFAULT_EDITOR_TEXT = '''-- enter the text for the %s
 -- all lines starting with '--' will be removed'''
@@ -267,26 +267,16 @@ def get_issue(jira_id):
         sys.exit('failed to get issue %s: %s' % (jira_id, error_msg))
 
 
-def get_filter_id_from_name(name):
-    # @TODO deprecated: merge get_filter* methods
-    filters = [k for k in get_filters() if k['name'].lower() == name.lower()]
-    if filters:
-        return filters[0]['id']
-    else:
-        raise RuntimeError('invalid filter name "%s"' % name)
+def get_filter_by_name(name):
+    return next((x for x in get_filters() if x.name.lower() == name.lower()), None)
 
 
-def get_issues_from_filter(filter_name):
-    fid = get_filter_id_from_name(filter_name)
-    if fid:
-        return JIRAOBJ.service.getIssuesFromFilter(TOKEN, fid)
-    return []
+def get_issues_by_filter(filter):
+    return JIRAOBJ.service.getIssuesFromFilter(TOKEN, filter.id)
 
 
 def get_filters():
-    # @TODO deprecated: merge get_filter* methods
-    filters = JIRAOBJ.service.getFavouriteFilters(TOKEN)
-    return dict((k['name'], k) for k in filters).values()
+    return JIRAOBJ.service.getFavouriteFilters(TOKEN)
 
 
 def get_components(project):
@@ -347,7 +337,7 @@ def command_list(args):
 
     if args.filter:
         for filt in args.filter:
-            issues = get_issues_from_filter(filt)
+            issues = get_issues_by_filter(get_filter_by_name(filt))
             for issue in issues:
                 mode = (0 if not args.verbose else 1)
                 mode = (-1 if args.oneline else mode)
