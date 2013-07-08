@@ -8,13 +8,8 @@ setup.py for jira-cli
 __author__ = 'Sören König'
 __email__ = 'soeren-koenig@freenet.de'
 
-import sys
 from setuptools import setup, find_packages
 import jiracli
-
-extra = {}
-if sys.version_info >= (3, ):
-    extra['use_2to3'] = True
 
 setup(
     name='jira-cli',
@@ -31,5 +26,4 @@ setup(
     zip_safe=False,
     install_requires=['setuptools', 'termcolor', 'suds'],
     entry_points={'console_scripts': ['jira-cli = jiracli.cli:main']},
-    **extra
 )
