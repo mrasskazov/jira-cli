@@ -323,7 +323,7 @@ def command_list(args):
 
     if args.filters:
         for idx, filt in enumerate(get_filters(), start=1):
-            print '%d. %s (Owner: %s)' % (idx, colorfunc(filt['name'], 'green'), filt['author'])
+            print '%d. %s: %s (Owner: %s)' % (idx, colorfunc(filt.id, 'green'), filt.name,  colorfunc(filt.author, 'blue'))
 
     if args.prios:
         for idx, prio in enumerate(get_issue_priority(None), start=1):
