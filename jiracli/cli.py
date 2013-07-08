@@ -26,8 +26,10 @@ DEFAULT_EDITOR_TEXT = '''-- enter the text for the %s
 -- all lines starting with '--' will be removed'''
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger('suds.client').setLevel(logging.INFO)
+logging.getLogger('suds.client').setLevel(logging.CRITICAL)
 
+
+# @TODO more test coverage
 
 def get_text_from_editor(def_text):
     tmp = tempfile.mktemp()
@@ -102,7 +104,7 @@ def check_auth(username, password, jirabase):
     def _validate_login(username, password, token=None):
         if token:
             try:
-                JIRAOBJ.service.getIssueTypes(token)
+                JIRAOBJ.service.getPriorities(token)
                 return token
             except WebFault:
                 return _validate_login(None, None)
@@ -151,6 +153,9 @@ def check_auth(username, password, jirabase):
 def format_issue(issue, mode=0, formatter=None, comments_only=False):
     ''' formatting output for a issue according the different modes '''
 
+    # @TODO rework 'mode' to use args too
+    # @TODO better formatting for "multiline" fields
+
     fields = {}
     status_string = get_issue_status(issue.status).lower()
     status_color = 'blue'
@@ -187,16 +192,16 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
         fields['summary'] = issue.summary
         fields['link'] = colorfunc('%s/browse/%s' % (JIRABASE, issue['key']), 'white', attrs=['underline'])
     if mode >= 1 or comments_only:
-        fields['description'] = issue.description
+        fields['description'] = issue.description.strip()
         fields['priority'] = get_issue_priority(issue.priority)
         fields['type'] = get_issue_type(issue.type)
         fields['components'] = ', '.join([component.name for component in issue.components])
         comments = get_comments(issue['key'])
         fields['comments'] = ''
         for comment in comments:
-            comment_str = comment['body'].strip()
-            fields['comments'] += '%s %s : %s\n' % (colorfunc(comment['created'], 'blue'), colorfunc(comment['author'],
-                                                    'green'), comment_str)
+            comment_body = comment['body'].strip()
+            fields['comments'] += '\n' + 20 * ' ' + ': %s %s - "%s"' % (colorfunc(comment['created'], 'blue'),
+                    colorfunc(comment['author'], 'green'), comment_body)
     if comments_only:
         return fields['comments'].strip()
     elif mode < 0:
@@ -263,6 +268,7 @@ def get_issue(jira_id):
 
 
 def get_filter_id_from_name(name):
+    # @TODO deprecated: merge get_filter* methods
     filters = [k for k in get_filters() if k['name'].lower() == name.lower()]
     if filters:
         return filters[0]['id']
@@ -278,6 +284,7 @@ def get_issues_from_filter(filter_name):
 
 
 def get_filters():
+    # @TODO deprecated: merge get_filter* methods
     filters = JIRAOBJ.service.getFavouriteFilters(TOKEN)
     return dict((k['name'], k) for k in filters).values()
 
@@ -485,6 +492,7 @@ examples:
     parser_comment.add_argument('issue', help='issue to comment')
     parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
 
+    # @TODO add 'toggle' option to start / stop progress, if possible
     parser_progress = subparsers.add_parser('progress')
     parser_progress.set_defaults(func=command_progress)
     parser_progress.add_argument('issue', help='issue to progress')
@@ -501,7 +509,7 @@ def main():
     try:
         parser = setup_argparser()
         args = parser.parse_args()
-        print args
+        logging.debug(args)
     except Exception, ex:
         sys.exit(colorfunc(str(ex), 'red'))
     check_auth(args.username, args.password, args.jirabase)
