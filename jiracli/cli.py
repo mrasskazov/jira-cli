@@ -255,8 +255,16 @@ def progress(issue_id, action):
 
 # --- simple "getter" functions ---
 
-def search_issues(criteria):
-    return JIRAOBJ.service.getIssuesFromTextSearch(TOKEN, criteria)
+def search_issues(criteria, limit=100):
+    return JIRAOBJ.service.getIssuesFromTextSearchWithLimit(TOKEN, criteria, 0, limit)
+
+
+def search_issues_jql(query, limit=100):
+    try:
+        return JIRAOBJ.service.getIssuesFromJqlSearch(TOKEN, query, limit)
+    except WebFault, ex:
+        error_msg = str(ex).replace('\n', ' ')
+        sys.exit('failed to get issues by %s: %s' % (query, error_msg))
 
 
 def get_issue(jira_id):
@@ -301,6 +309,7 @@ def command_list(args):
         args.prios,
         args.types,
         args.search,
+        args.jqlsearch,
         args.filter,
         args.components,
     ]):
@@ -333,6 +342,13 @@ def command_list(args):
         for issue in issues:
             mode = (0 if not args.verbose else 1)
             mode = (-1 if args.oneline else mode)
+            print format_issue(issue, mode, args.format)
+
+    if args.jqlsearch:
+        issues = search_issues_jql(args.jqlsearch)
+        mode = (0 if not args.verbose else 1)
+        mode = (-1 if args.oneline else mode)
+        for issue in issues:
             print format_issue(issue, mode, args.format)
 
     if args.filter:
@@ -466,14 +482,17 @@ examples:
     parser_list.add_argument('--filters', help='print available filters', action='store_true')
     parser_list.add_argument('--components', help='print components by project')
     parser_list.add_argument('-f', '--filter', help='filter(s) to use for listing issues', nargs='+')
-    parser_list.add_argument('-s', '--search', help='search criteria')
+    parser_list.add_argument('-s', '--search', help='fuzzy text search')
+    parser_list.add_argument('-j', '--jqlsearch',
+                             help='search by JQL query, example: "assignee = currentUser() AND resolution = unresolved AND status != "Waiting for Feedback" ORDER BY priority DESC, updated DESC" '
+                             )
 
     parser_create = subparsers.add_parser('create')
     parser_create.set_defaults(func=command_create)
     parser_create.add_argument('project', help='project to create the issue in')
     parser_create.add_argument('-s', '--summary', help='create a new issue with given summary', nargs='*')
     parser_create.add_argument('-d', '--description', help='type of new issue', nargs='*')
-    parser_create.add_argument('-p', '--priority', help='priority of new issue', default='minor')
+    parser_create.add_argument('-p', '--priority', help='priority of new issue', default='major')
     parser_create.add_argument('-t', '--type', help='type of new issue', default='task')
     parser_create.add_argument('-c', '--components', help='components of new issue', nargs='*')
 
@@ -508,3 +527,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
