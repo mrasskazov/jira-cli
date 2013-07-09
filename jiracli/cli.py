@@ -410,7 +410,7 @@ def command_progress(args):
 
     if args.actions:
         for idx, action in enumerate(available_actions, start=1):
-            print '%d. %s: %s' % (idx, colorfunc(action.id, 'green'), action.name)
+            print '%d. %s: "%s"' % (idx, colorfunc(action.id, 'green'), action.name)
 
     if args.start:
         if any(map(lambda a: a in available_actions_names, ['start progress', 'in progress >>'])):
@@ -447,6 +447,11 @@ def command_progress(args):
         if args.transist.lower() in available_actions_names:
             print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', args.transist.lower())), 0,
                                args.format)
+            available_actions = get_actions(args.issue)
+            available_actions_names = [action.name.lower() for action in available_actions]
+            print 'available actions from this state are:'
+            for idx, action in enumerate(available_actions, start=1):
+                print '%d. %s: "%s"' % (idx, colorfunc(action.id, 'green'), action.name)
         else:
             sys.exit('unable to perform transition "%s" on "%s", available actions are: "%s"' % (args.transist,
                      args.issue, available_actions_names))
