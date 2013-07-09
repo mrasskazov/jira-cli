@@ -323,7 +323,8 @@ def command_list(args):
 
     if args.filters:
         for idx, filt in enumerate(get_filters(), start=1):
-            print '%d. %s: %s (Owner: %s)' % (idx, colorfunc(filt.id, 'green'), filt.name,  colorfunc(filt.author, 'blue'))
+            print '%d. %s: %s (Owner: %s)' % (idx, colorfunc(filt.id, 'green'), filt.name, colorfunc(filt.author, 'blue'
+                                              ))
 
     if args.prios:
         for idx, prio in enumerate(get_issue_priority(None), start=1):
@@ -398,6 +399,9 @@ def command_comment(args):
 def command_progress(args):
     '''entry point for 'progress' subcommand '''
 
+    def find_by_attr(list, attr, value):
+        return next((x for x in list if x[attr].lower() == value), None)
+
     if not args.issue:
         raise Exception('issue id must be provided')
 
@@ -409,25 +413,48 @@ def command_progress(args):
             print '%d. %s: %s' % (idx, colorfunc(action.id, 'green'), action.name)
 
     if args.start:
-        if 'start progress' in available_actions_names:
-            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
-                               == 'start progress'), None)), 0, args.format)
+        if any(map(lambda a: a in available_actions_names, ['start progress', 'in progress >>'])):
+            action = None
+            for a in ['start progress', 'in progress >>']:
+                action = find_by_attr(available_actions, 'name', a)
+                if action:
+                    break
+            print format_issue(progress(args.issue, action), 0, args.format)
         else:
             sys.exit('unable to start progress on "%s", available actions are: "%s"' % (args.issue,
                      available_actions_names))
 
     if args.stop:
         if 'stop progress' in available_actions_names:
-            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
-                               == 'stop progress'), None)), 0, args.format)
+            print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', 'stop progress')), 0,
+                               args.format)
         else:
             sys.exit('unable to stop progress on "%s", available actions are: "%s"' % (args.issue,
                      available_actions_names))
 
+    if args.toggle:
+        if 'start progress' in available_actions_names:
+            print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', 'start progress')), 0,
+                               args.format)
+        elif 'stop progress' in available_actions_names:
+            print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', 'stop progress')), 0,
+                               args.format)
+        else:
+            sys.exit('unable to toggle progress on "%s", available actions are: "%s"' % (args.issue,
+                     available_actions_names))
+
+    if args.transist:
+        if args.transist.lower() in available_actions_names:
+            print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', args.transist.lower())), 0,
+                               args.format)
+        else:
+            sys.exit('unable to perform transition "%s" on "%s", available actions are: "%s"' % (args.transist,
+                     args.issue, available_actions_names))
+
     if args.close:
         if 'close issue' in available_actions_names:
-            print format_issue(progress(args.issue, next((x for x in available_actions if x.name.lower()
-                               == 'close issue'), None)), 0, args.format)
+            print format_issue(progress(args.issue, find_by_attr(available_actions, 'name', 'close issue')), 0,
+                               args.format)
         else:
             sys.exit('unable to close "%s", available actions are: "%s"' % (args.issue, available_actions_names))
 
@@ -501,7 +528,6 @@ examples:
     parser_comment.add_argument('issue', help='issue to comment')
     parser_comment.add_argument('-c', '--comment', help='comment on issue', nargs='*')
 
-    # @TODO add 'toggle' option to start / stop progress, if possible
     parser_progress = subparsers.add_parser('progress')
     parser_progress.set_defaults(func=command_progress)
     parser_progress.add_argument('issue', help='issue to progress')
@@ -509,7 +535,9 @@ examples:
     group = parser_progress.add_mutually_exclusive_group()
     group.add_argument('--start', help='start progress', action='store_true')
     group.add_argument('--stop', help='stop progress', action='store_true')
+    group.add_argument('-t', '--toggle', help='toggle start / stop', action='store_true')
     group.add_argument('-c', '--close', help='close issue', action='store_true')
+    group.add_argument('--transist', help='perform transition')
 
     return parser
 
