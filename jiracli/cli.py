@@ -210,12 +210,12 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
             ret_str = colorfunc(issue['key'], status_color)
         else:
             ret_str = issue['key'] + ' [%s] ' % get_issue_status(issue['status'])
-        ret_str += ' ' + issue.summary + ' ' + url_str
-        return ret_str
+        ret_str += ' ' + issue.summary+ ' ' + url_str
+        return ret_str.encode('utf-8')
     for key, value in fields.items():
         if not value:
             fields[key] = ''
-    return '\n'.join(': '.join((k.ljust(20), v)) for (k, v) in fields.items()) + '\n'
+    return '\n'.join(': '.join((k.ljust(20), v.encode('utf-8'))) for (k, v) in fields.items()) + '\n'
 
 
 def add_comment(jira_id, comment):
