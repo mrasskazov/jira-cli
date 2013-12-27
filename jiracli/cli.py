@@ -11,17 +11,18 @@ import pickle
 import sys
 import urllib2
 import logging
+import ConfigParser
 from suds.client import Client
 from suds import WebFault
 from termcolor import colored as colorfunc
 
-JIRABASE = None
+CONFIG = {'color': True}
 JIRAOBJ = None
 TOKEN = None
-COLOR = True
+
 if not sys.stdout.isatty():
     colorfunc = lambda *a, **k: str(a[0])  # NOQA  # silence pyflakes
-    COLOR = False
+    CONFIG['color'] = False
 DEFAULT_EDITOR_TEXT = '''-- enter the text for the %s
 -- all lines starting with '--' will be removed'''
 
@@ -93,61 +94,93 @@ def get_issue_priority(priority):
                 return prio['id']
 
 
-def check_auth(username, password, jirabase):
+def check_auth():
     ''' check credentials against jira instance and authenticate '''
 
-    global JIRABASE, JIRAOBJ, TOKEN
+    global JIRAOBJ, TOKEN
 
-    if not os.path.isdir(os.path.expanduser('~/.jira-cli')):
-        os.makedirs(os.path.expanduser('~/.jira-cli'))
-
-    def _validate_login(username, password, token=None):
+    def _validate_login(token=None):
         if token:
             try:
                 JIRAOBJ.service.getPriorities(token)
                 return token
             except WebFault:
-                return _validate_login(None, None)
+                return _validate_login()
 
-        if not username:
-            username = raw_input('enter username:')
-        if not password:
-            password = getpass.getpass('enter password:')
         try:
-            token = JIRAOBJ.service.login(username, password)
+            token = JIRAOBJ.service.login(config('user'), config('password'))
+            open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(token)
+            return token
         except WebFault:
             print colorfunc('username or password incorrect, try again.', 'red')
-            return _validate_login(None, None)
-        open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(token)
-        return token
+            config('user', unset=True)
+            config('password', unset=True)
+            return _validate_login()
 
-    def _validate_jira_url(url=None):
-        if not url:
-            JIRABASE = raw_input('base url for your jira instance (e.g http://issues.apache.org/jira):')
-        else:
-            JIRABASE = url
+    def _validate_jira_url():
+        jirabase = config('jirabase')
+
         try:
-            urllib2.urlopen('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
-            Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
+            urllib2.urlopen('%s/rpc/soap/jirasoapservice-v2?wsdl' % jirabase)
+            return Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % jirabase)
         except (socket.gaierror, IOError):
-            print colorfunc('invalid url %s. Please provide the correct url for your jira instance' % JIRABASE, 'red')
+            print colorfunc('invalid url %s. Please provide the correct url for your jira instance' % jirabase, 'red')
+            config('jirabase', unset=True)
             return _validate_jira_url()
         except Exception, ex:
             raise ex
-        open(os.path.expanduser('~/.jira-cli/config'), 'w').write(JIRABASE)
-        return JIRABASE
 
-    if os.path.isfile(os.path.expanduser('~/.jira-cli/config')):
-        JIRABASE = open(os.path.expanduser('~/.jira-cli/config')).read().strip()
-    if jirabase:
-        JIRABASE = jirabase
-    JIRABASE = _validate_jira_url(JIRABASE)
-    JIRAOBJ = Client('%s/rpc/soap/jirasoapservice-v2?wsdl' % JIRABASE)
+    JIRAOBJ = _validate_jira_url()
     logging.debug(JIRAOBJ)
 
     if os.path.isfile(os.path.expanduser('~/.jira-cli/auth')):
         TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read().strip()
-    TOKEN = _validate_login(username, password, token=TOKEN)
+    TOKEN = _validate_login(TOKEN)
+    logging.debug(TOKEN)
+
+
+def config(key, unset=False):
+    '''reading / generating config file or updating it, and returning val if key is given'''
+
+    config_file = os.path.expanduser('~/.jira-cli/config')
+    parser = ConfigParser.ConfigParser()
+
+    if os.path.isfile(config_file):
+        parser.read(config_file)
+    else:
+        print 'no config file found, generating it'
+        if not os.path.isdir(os.path.expanduser('~/.jira-cli')):
+            os.makedirs(os.path.expanduser('~/.jira-cli'))
+
+    parser.has_section('general') or parser.add_section('general')
+
+    if unset:
+        del CONFIG[key]
+        parser.remove_option('general', key)
+
+    if CONFIG.has_key(key):
+        logging.debug('retrieving key "%s" from config' % key)
+        return CONFIG.get(key)
+    elif parser.has_option('general', key):
+        logging.debug('retrieving key "%s" from file' % key)
+        CONFIG[key] = parser.get('general', key)
+        return parser.get('general', key)
+    elif key == 'jirabase':
+        jirabase = raw_input('base url for your jira instance (e.g http://issues.apache.org/jira):')
+        CONFIG['jirabase'] = jirabase
+        parser.set('general', 'jirabase', jirabase)
+    elif key == 'user':
+        user = raw_input('enter username:')
+        CONFIG['user'] = user
+        parser.set('general', 'user', user)
+    elif key == 'password':
+        password = getpass.getpass('enter password:')
+        CONFIG['password'] = password
+        parser.set('general', 'password', password)
+
+    with open(config_file, 'wb') as fh:
+        parser.write(fh)
+    return CONFIG[key]
 
 
 def format_issue(issue, mode=0, formatter=None, comments_only=False):
@@ -190,7 +223,7 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
         fields['reporter'] = issue.reporter
         fields['assignee'] = issue.assignee
         fields['summary'] = issue.summary
-        fields['link'] = colorfunc('%s/browse/%s' % (JIRABASE, issue['key']), 'white', attrs=['underline'])
+        fields['link'] = colorfunc('%s/browse/%s' % (config('jirabase'), issue['key']), 'white', attrs=['underline'])
     if mode >= 1 or comments_only:
         fields['description'] = issue.description.strip()
         fields['priority'] = get_issue_priority(issue.priority)
@@ -205,8 +238,8 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
     if comments_only:
         return fields['comments'].strip()
     elif mode < 0:
-        url_str = colorfunc('%s/browse/%s' % (JIRABASE, issue['key']), 'white', attrs=['underline'])
-        if COLOR:
+        url_str = colorfunc('%s/browse/%s' % (config('jirabase'), issue['key']), 'white', attrs=['underline'])
+        if CONFIG['color']:
             ret_str = colorfunc(issue['key'], status_color)
         else:
             ret_str = issue['key'] + ' [%s] ' % get_issue_status(issue['status'])
@@ -554,7 +587,7 @@ def main():
         logging.debug(args)
     except Exception, ex:
         sys.exit(colorfunc(str(ex), 'red'))
-    check_auth(args.username, args.password, args.jirabase)
+    check_auth()
     args.func(args)
 
 
