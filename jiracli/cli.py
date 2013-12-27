@@ -360,7 +360,7 @@ def command_list(args):
         args.search,
         args.jqlsearch,
         args.filter,
-        args.components,
+        args.project,
     ]):
         if not args.issue:
             raise Exception('issue id must be provided')
@@ -387,8 +387,8 @@ def command_list(args):
         for idx, prio in enumerate(get_issue_priority(None), start=1):
             print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
 
-    if args.components:
-        for idx, comp in enumerate(get_components(args.components), start=1):
+    if args.project:
+        for idx, comp in enumerate(get_components(args.project), start=1):
             print '%d. %s: %s' % (idx, colorfunc(comp['id'], 'green'), comp['name'])
 
     if args.search:
@@ -563,7 +563,7 @@ examples:
     parser_list.add_argument('--statuses', help="print all issue 'statuses'", action='store_true')
     parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
     parser_list.add_argument('--filters', help='print available filters', action='store_true')
-    parser_list.add_argument('--components', help='print components by project')
+    parser_list.add_argument('--components', help='print components by project', dest='project')
     parser_list.add_argument('-f', '--filter', help='filter(s) to use for listing issues', nargs='+')
     parser_list.add_argument('-s', '--search', help='fuzzy text search')
     parser_list.add_argument('-j', '--jqlsearch',
