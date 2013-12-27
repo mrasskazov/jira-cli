@@ -7,7 +7,7 @@ import os
 import argparse
 import tempfile
 import socket
-import pickle
+import json
 import sys
 import urllib2
 import logging
@@ -43,55 +43,70 @@ def get_text_from_editor(def_text):
 def get_issue_type(issuetype):
     ''' get either all available issue types if no `issuetype` given, or issue type id found by name'''
 
-    if os.path.isfile(os.path.expanduser('~/.jira-cli/types.pkl')):
-        issue_types = pickle.load(open(os.path.expanduser('~/.jira-cli/types.pkl'), 'rb'))
+    issue_types_file = os.path.expanduser('~/.jira-cli/types.json')
+
+    if os.path.isfile(issue_types_file):
+        with open(issue_types_file, 'rb') as fh:
+            issue_types = json.load(fh)
     else:
         issue_types = JIRAOBJ.service.getIssueTypes(TOKEN)
-        pickle.dump(issue_types, open(os.path.expanduser('~/.jira-cli/types.pkl'), 'wb'))
+        issue_types = map(lambda x: dict(x), issue_types)
+        with open(issue_types_file, 'wb') as fh:
+            json.dump(issue_types, fh)
 
     if not issuetype:
         return issue_types
     else:
         issuetype = issuetype.lower()
-        for types in issue_types:
-            if types['name'].lower() == issuetype:
-                return types['id']
+        for it in issue_types:
+            if it['name'].lower() == issuetype:
+                return it['id']
 
 
-def get_issue_status(stat):
+def get_issue_status(status):
     ''' get either all available statuses if no `stat` given, or status name found by id'''
 
-    if os.path.isfile(os.path.expanduser('~/.jira-cli/statuses.pkl')):
-        issue_statuses = pickle.load(open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'rb'))
+    issue_statuses_file = os.path.expanduser('~/.jira-cli/statuses.json')
+
+    if os.path.isfile(issue_statuses_file):
+        with open(issue_statuses_file, 'rb') as fh:
+            issue_statuses = json.load(fh)
     else:
         issue_statuses = JIRAOBJ.service.getStatuses(TOKEN)
-        pickle.dump(issue_statuses, open(os.path.expanduser('~/.jira-cli/statuses.pkl'), 'wb'))
+        issue_statuses = map(lambda x: dict(x), issue_statuses)
+        with open(issue_statuses_file, 'wb') as fh:
+            json.dump(issue_statuses, fh)
 
-    if not stat:
+    if not status:
         return issue_statuses
     else:
-        stat = stat.lower()
-        for status in issue_statuses:
-            if status['id'].lower() == stat:
-                return status['name']
+        status = status.lower()
+        for st in issue_statuses:
+            if st['id'].lower() == status:
+                return st['name']
 
 
 def get_issue_priority(priority):
     ''' get either all available priorities if no `priority` given, or priority id found by name'''
 
-    if os.path.isfile(os.path.expanduser('~/.jira-cli/priorities.pkl')):
-        issue_priorities = pickle.load(open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'rb'))
+    issue_priorities_file = os.path.expanduser('~/.jira-cli/priorities.json')
+
+    if os.path.isfile(issue_priorities_file) and os.stat(issue_priorities_file)[6] < 0:
+        with open(issue_priorities_file, 'rb') as fh:
+            issue_priorities = json.load(fh)
     else:
         issue_priorities = JIRAOBJ.service.getPriorities(TOKEN)
-        pickle.dump(issue_priorities, open(os.path.expanduser('~/.jira-cli/priorities.pkl'), 'wb'))
+        issue_priorities = map(lambda x: dict(x), issue_priorities)
+        with open(issue_priorities_file, 'wb') as fh:
+            json.dump(issue_priorities, fh)
 
     if not priority:
         return issue_priorities
     else:
         priority = priority.lower()
-        for prio in issue_priorities:
-            if prio['name'].lower() == priority:
-                return prio['id']
+        for ip in issue_priorities:
+            if ip['name'].lower() == priority:
+                return ip['id']
 
 
 def check_auth():
@@ -243,7 +258,7 @@ def format_issue(issue, mode=0, formatter=None, comments_only=False):
             ret_str = colorfunc(issue['key'], status_color)
         else:
             ret_str = issue['key'] + ' [%s] ' % get_issue_status(issue['status'])
-        ret_str += ' ' + issue.summary+ ' ' + url_str
+        ret_str += ' ' + issue.summary + ' ' + url_str
         return ret_str.encode('utf-8')
     for key, value in fields.items():
         if not value:
@@ -340,6 +355,7 @@ def command_list(args):
     if not any([
         args.filters,
         args.prios,
+        args.statuses,
         args.types,
         args.search,
         args.jqlsearch,
@@ -359,13 +375,17 @@ def command_list(args):
             print '%d. %s: %s (Owner: %s)' % (idx, colorfunc(filt.id, 'green'), filt.name, colorfunc(filt.author, 'blue'
                                               ))
 
-    if args.prios:
-        for idx, prio in enumerate(get_issue_priority(None), start=1):
-            print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
-
     if args.types:
         for idx, typ in enumerate(get_issue_type(None), start=1):
             print '%d. %s: %s' % (idx, colorfunc(typ['name'], 'green'), typ['description'])
+
+    if args.statuses:
+        for idx, status in enumerate(get_issue_status(None), start=1):
+            print '%d. %s: %s' % (idx, colorfunc(status['name'], 'green'), status['description'])
+
+    if args.prios:
+        for idx, prio in enumerate(get_issue_priority(None), start=1):
+            print '%d. %s: %s' % (idx, colorfunc(prio['name'], 'green'), prio['description'])
 
     if args.components:
         for idx, comp in enumerate(get_components(args.components), start=1):
@@ -503,9 +523,6 @@ def setup_argparser():
     '''setting up and returning command line arguments parser'''
 
     parser = argparse.ArgumentParser(prog='jira-cli', description='command line utility for interacting with jira')
-    parser.add_argument('--user', dest='username', help='username to login as', default=None)
-    parser.add_argument('--password', dest='password', help='password', default=None)
-    parser.add_argument('--jirabase', help='base url to jira instance', default=None)
 
     # options for output formatting:
     group = parser.add_mutually_exclusive_group()
@@ -543,6 +560,7 @@ examples:
     parser_list.set_defaults(func=command_list)
     parser_list.add_argument('issue', help='issue id to list', nargs='*')
     parser_list.add_argument('--types', help="print all issue 'types'", action='store_true')
+    parser_list.add_argument('--statuses', help="print all issue 'statuses'", action='store_true')
     parser_list.add_argument('--prios', help="print all issue 'priorities'", action='store_true')
     parser_list.add_argument('--filters', help='print available filters', action='store_true')
     parser_list.add_argument('--components', help='print components by project')
