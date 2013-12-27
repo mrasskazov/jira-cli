@@ -109,7 +109,7 @@ def check_auth():
 
         try:
             token = JIRAOBJ.service.login(config('user'), config('password'))
-            open(os.path.expanduser('~/.jira-cli/auth'), 'w').write(token)
+            open(os.path.expanduser('~/.jira-cli/token'), 'w').write(token)
             return token
         except WebFault:
             print colorfunc('username or password incorrect, try again.', 'red')
@@ -133,8 +133,8 @@ def check_auth():
     JIRAOBJ = _validate_jira_url()
     logging.debug(JIRAOBJ)
 
-    if os.path.isfile(os.path.expanduser('~/.jira-cli/auth')):
-        TOKEN = open(os.path.expanduser('~/.jira-cli/auth')).read().strip()
+    if os.path.isfile(os.path.expanduser('~/.jira-cli/token')):
+        TOKEN = open(os.path.expanduser('~/.jira-cli/token')).read().strip()
     TOKEN = _validate_login(TOKEN)
     logging.debug(TOKEN)
 
